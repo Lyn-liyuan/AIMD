@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>冰湖寻宝 - 强化学习模拟</title>
+    <style>
+        canvas { border: 2px solid #333; }
+        #info { font-family: monospace; }
+    </style>
+</head>
+<body>
+    <canvas id="lakeCanvas" width="360" height="360"></canvas>
+    <div id="info"></div>
+
+<script>
+const GRID_SIZE = 60;
+const MAZE_SIZE = 6;
+const COLORS = {
+    water: '#1E90FF',
+    thin_ice: '#FFA07A',
+    treasure: '#228B22',
+    agent: '#FFD700',
+    text: '#000000'
+};
+
+class FrozenLakeEnv {
+    constructor() {
+        this.grid = Array.from({length: MAZE_SIZE}, (_,x) => 
+            Array.from({length: MAZE_SIZE}, (_,y) => {
+                if ((x === 2 && y === 3) || (x ===4 && y ===1) || (x===5 && y===4)) return 1;
+                return x === 5 && y ===5 ? 2 : 0;
+            })
+        );
+        this.value_map = Array(MAZE_SIZE).fill().map(() => Array(MAZE_SIZE).fill(0));
+        this.q_table = Array(MAZE_SIZE).fill().map(() => 
+            Array(MAZE_SIZE).fill().map(() => Array(4).fill(0))
+        );
+    }
+
+    get_reward(x, y) {
+        if (this.grid[x][y] === 1) return { reward: -3, done: true };
+        if (this.grid[x][y] === 2) return { reward: 5, done: true };
+        return { reward: -0.1, done: false };
+    }
+
+    reset() { return [0, 0]; }
+}
+
+class Agent {
+    constructor() {
+        this.x = 0;
+        this.y = 0;
+        this.total_reward = 0;
+        this.learning_rate = 0.1;
+        this.discount = 0.9;
+        this.epsilon = 0.2;
+    }
+
+    choose_action(env) {
+        if (Math.random() < this.epsilon) return Math.floor(Math.random()*4);
+        return env.q_table[this.x][this.y].indexOf(
+            Math.max(...env.q_table[this.x][this.y])
+        );
+    }
+
+    update_q(env, action, next_x, next_y, reward) {
+        const current_q = env.q_table[this.x][this.y][action];
+        const max_next_q = Math.max(...env.q_table[next_x][next_y]);
+        env.q_table[this.x][this.y][action] += this.learning_rate * 
+            (reward + this.discount * max_next_q - current_q);
+    }
+}
+
+class Visualizer {
+    constructor(canvas) {
+        this.ctx = canvas.getContext('2d');
+        this.font = '14px Arial';
+    }
+
+    draw(env, agent) {
+        this.ctx.clearRect(0, 0, GRID_SIZE*MAZE_SIZE, GRID_SIZE*MAZE_SIZE);
+        
+        // 绘制网格背景
+        for (let x = 0; x < MAZE_SIZE; x++) {
+            for (let y = 0; y < MAZE_SIZE; y++) {
+                this.ctx.fillStyle = COLORS.water;
+                if (env.grid[x][y] === 1) this.ctx.fillStyle = COLORS.thin_ice;
+                this.ctx.fillRect(y*GRID_SIZE, x*GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                
+                if (env.grid[x][y] === 2) { // 绘制宝藏
+                    this.ctx.strokeStyle = COLORS.treasure;
+                    this.ctx.lineWidth = 5;
+                    this.ctx.strokeRect(y*GRID_SIZE+2, x*GRID_SIZE+2, GRID_SIZE-4, GRID_SIZE-4);
+                }
+                
+                // 显示价值函数
+                this.ctx.fillStyle = COLORS.text;
+                this.ctx.font = this.font;
+                this.ctx.fillText(
+                    env.value_map[x][y].toFixed(1), 
+                    y*GRID_SIZE + 5, 
+                    x*GRID_SIZE + 20
+                );
+            }
+        }
+        
+        // 绘制智能体
+        this.ctx.beginPath();
+        this.ctx.arc(
+            (agent.y + 0.5) * GRID_SIZE,
+            (agent.x + 0.5) * GRID_SIZE,
+            15, 0, Math.PI*2
+        );
+        this.ctx.fillStyle = COLORS.agent;
+        this.ctx.fill();
+    }
+}
+
+// 初始化系统
+const canvas = document.getElementById('lakeCanvas');
+const visualizer = new Visualizer(canvas);
+const env = new FrozenLakeEnv();
+const agent = new Agent();
+let episode = 0;
+
+function animate() {
+    // 执行Q-learning步骤
+    const action = agent.choose_action(env);
+    const move = [[ -1, 0 ], [ 1, 0 ], [ 0, -1 ], [ 0, 1 ]][action];
+    
+    let next_x = agent.x + move[0];
+    let next_y = agent.y + move[1];
+    next_x = Math.max(0, Math.min(next_x, MAZE_SIZE-1));
+    next_y = Math.max(0, Math.min(next_y, MAZE_SIZE-1));
+    
+    const {reward, done} = env.get_reward(next_x, next_y);
+    agent.update_q(env, action, next_x, next_y, reward);
+    agent.total_reward += reward;
+    
+    // 更新价值函数显示
+    env.value_map[agent.x][agent.y] = Math.max(...env.q_table[agent.x][agent.y]);
+    
+    if (done) {
+        console.log(`Episode ${episode}: Reward ${agent.total_reward.toFixed(1)}`);
+        [agent.x, agent.y] = env.reset();
+        agent.total_reward = 0;
+        episode++;
+    } else {
+        agent.x = next_x;
+        agent.y = next_y;
+    }
+    
+    visualizer.draw(env, agent);
+    requestAnimationFrame(animate);
+}
+
+animate(); // 启动动画循环
+</script>
+</body>
+</html>
